@@ -1,187 +1,388 @@
-UOS_LINGUISTIC_PROMPT = """You split hotel review sentences into Unit Opinion Sentences (UOS).
+UOS_LINGUISTIC_PROMPT = """You split hotel review sentences into Unit Aspect Sentences (UAS).
 
-A UOS = exactly ONE opinion about ONE target, written as a complete standalone sentence.
-Return a JSON array of strings only. No explanation, no extra text.
+A UAS contains exactly ONE aspect term and ONE sentiment orientation toward that aspect.
 
+Return a JSON array of strings only.
+No explanation.
+No extra text.
 
 ## GOAL
-Separate every distinct (target, opinion) pair into its own sentence.
-Rewrite fragments into full sentences: add "The"/"A", a copula (is/was/are/were),
-and keep the original adjectives. Never invent aspects, sentiments, or details.
+
+Split review text into minimal aspect-focused sentences suitable for Aspect-Based Sentiment Analysis (ABSA).
+
+Split a sentence whenever:
+
+1. The aspect term changes.
+2. The sentiment toward the same aspect changes.
+
+Do NOT split merely because multiple descriptive words are used for the same aspect if they express the same overall sentiment.
+
+Rewrite fragments into complete standalone sentences when necessary:
+
+* add articles ("The", "A")
+* add a copula ("is", "was", "are", "were")
+* preserve the original wording
+
+Never invent aspects, sentiments, attributes, or details.
+
+---
 
 ## HARD CONSTRAINTS
-- Do NOT add a sentiment or adjective that is not in the input.
-- Do NOT turn factual context into an opinion.
-- Do NOT split nouns that only appear inside a prepositional phrase, location phrase,
-  reason phrase, example list, or amenities list.
-- Split only when the target has its own explicit opinion/predicate, or when one
-  explicit shared opinion clearly applies to multiple real targets.
 
+* Do NOT add information not present in the input.
 
-## SPLIT  — produce one UOS per distinct (target, opinion) pair
+* Do NOT invent aspect terms.
 
-1) Different targets, each with its own explicit opinion or predicate.
-   "The room was clean but breakfast was cold."
-   -> ["The room was clean.", "The breakfast was cold."]
-   "The beds were incredibly comfortable and the room was spacious and nice."
-   -> ["The beds were incredibly comfortable.", "The room was spacious and nice."]
-   "Environment is comfortable, space is very large, the swimming pool is clean."
-   -> ["Environment is comfortable.", "Space is very large.", "The swimming pool is clean."]
+* Do NOT invent sentiment.
 
-2) "and"/comma joins DIFFERENT targets, each with its OWN attribute.
-   "Wonderful location with a fantastic swimming pool with views of the rock formations"
-   -> ["Wonderful location.", "with a fantastic swimming pool with views of the rock formations."]
-   "A beautiful sandy beach and crystal-clear seawater"
-   -> ["A beautiful sandy beach.", "crystal-clear seawater."]
-   "Beautiful room and pool"
-   -> ["The room was beautiful.", "The pool was beautiful."]
+* Do NOT convert factual statements into sentiment statements.
 
-3) DISTRIBUTE a shared opinion to DISTINCT targets from DIFFERENT functional domains.
-   When ONE adjective/predicate applies to multiple targets joined by "and"/comma,
-   repeat that opinion for each target — but ONLY when the targets are from clearly
-   different functional categories (e.g. room ≠ pool, room ≠ toilet, bed ≠ sofa).
-   "Very comfortable room and bed"   -> ["Very comfortable room.", "Very comfortable bed."]
-   "The room and toilet are dirty"   -> ["The room is dirty.", "The toilet is dirty."]
-   "Stunning rooftop pool and bar"   -> ["The rooftop pool was stunning.", "The bar was stunning."]
-   "Bed and sofa both very comfortable"  -> ["The bed was very comfortable.", "The sofa was very comfortable."]
-   "The room and bathroom were both spacious and clean"
-   -> ["The room was spacious and clean.", "The bathroom was spacious and clean."]
-   "The mattress and pillows are comfortable" 
-   -> ["The mattress was comfortable.", "The pillows were comfortable."]
-   "The sheets and towels were very old" 
-   -> ["The sheets were very old.", "The towels were very old."]
-   "The pool and beach are the hero of this property"
-   -> ["The pool was the hero of this property.", "The beach was the hero of this property."]
-    "Rooftop pool and view was awesome"  
-    -> ["The rooftop pool was awesome.", "The view was awesome."]
+* Do NOT split nouns that appear only inside:
 
-4) One target with CONTRASTING or CLEARLY INDEPENDENT opinions.
-   "The breakfast was delicious but expensive."
-   -> ["The breakfast was delicious.", "The breakfast was expensive."]
-   "The pool is beautifully maintained and gorgeous both day and night."
-   -> ["The pool is beautifully maintained.", "The pool is gorgeous both day and night."]
+  * location phrases
+  * example lists
+  * amenities lists
+  * causal explanations
+  * prepositional phrases
 
-5) Comma-separated or space-separated opinion fragments about distinct targets.
-   "Lovely hotel room, good beds, nice staff"
-   -> ["Lovely hotel room.", "Good beds.", "Nice staff."]
-   "Nice bungalow and clean beach Good food in the restaurant Beautiful sunset"
-   -> ["Nice bungalow.", "Clean beach.", "Good food in the restaurant.", "Beautiful sunset."]
+* Split only when:
 
-6) "with" introducing a SEPARATE PHYSICAL SPACE or DIFFERENT-DOMAIN entity
-   that carries its own explicit adjective or opinion.
-   Split when "with" leads to a named separate space (bathroom, bathtub, balcony,
-   garden, bar) OR to a clearly different-domain entity (location feature alongside
-   a food opinion), and that entity has its own explicit adjective:
-   "Very spacious room with a huge bathroom"
-   -> ["Very spacious room.", "with a huge bathroom."]
-   "The room was lovely with a beautiful view and a large balcony"
-   -> ["The room was lovely.", "beautiful view.", "The balcony was large."]
-   "Delicious breakfast with lovely views overlooking the beach"
-   -> ["Delicious breakfast.", "with lovely views overlooking the beach."]
-   "The room is comfortable, quiet, with a very large bed and a renovated bathroom"
-   -> ["The room is comfortable and quiet.", "The room has a very large bed.", "The bathroom was renovated."]
+  * aspect terms differ, OR
+  * sentiment polarity differs.
 
-   DO NOT split "with" when it introduces accessories, amenities, or a quality/
-   feature that describes the main target (its view, its design, its style):
-   "Nice swimming pool with sun loungers"              -> keep as one UOS
-   "The pool was relaxing with colourful lights"       -> keep as one UOS
-   "The rooftop pool had a great view"                 -> keep as one UOS
-   "Beautiful room with a breathtaking view"           -> keep as one UOS
-   "Beautiful 2 bathrooms with walk-in showers and a sauna" -> keep as one UOS
+---
 
+## SPLIT
+
+### Rule 1 — Different aspects
+
+"The room was clean but breakfast was cold."
+
+Output:
+
+[
+"The room was clean.",
+"The breakfast was cold."
+]
+
+---
+
+"The beds were comfortable and the room was spacious."
+
+Output:
+
+[
+"The beds were comfortable.",
+"The room was spacious."
+]
+
+---
+
+"The room and bathroom were clean."
+
+Output:
+
+[
+"The room was clean.",
+"The bathroom was clean."
+]
+
+---
+
+### Rule 2 — Shared sentiment across different aspects
+
+"Beautiful room and pool."
+
+Output:
+
+[
+"The room was beautiful.",
+"The pool was beautiful."
+]
+
+---
+
+"Very comfortable room and bed."
+
+Output:
+
+[
+"The room was very comfortable.",
+"The bed was very comfortable."
+]
+
+---
+
+"The mattress and pillows are comfortable."
+
+Output:
+
+[
+"The mattress was comfortable.",
+"The pillows were comfortable."
+]
+
+---
+
+### Rule 3 — Same aspect but different sentiment
+
+"The breakfast was delicious but expensive."
+
+Output:
+
+[
+"The breakfast was delicious.",
+"The breakfast was expensive."
+]
+
+---
+
+"The room was spacious but noisy."
+
+Output:
+
+[
+"The room was spacious.",
+"The room was noisy."
+]
+
+---
+
+"The location was convenient but crowded."
+
+Output:
+
+[
+"The location was convenient.",
+"The location was crowded."
+]
+
+---
+
+### Rule 4 — Distinct aspect fragments
+
+"Lovely hotel room, good beds, nice staff."
+
+Output:
+
+[
+"Lovely hotel room.",
+"Good beds.",
+"Nice staff."
+]
+
+---
+
+"Nice bungalow and clean beach. Good food in the restaurant. Beautiful sunset."
+
+Output:
+
+[
+"Nice bungalow.",
+"Clean beach.",
+"Good food in the restaurant.",
+"Beautiful sunset."
+]
+
+---
+
+### Rule 5 — Separate physical spaces introduced by 'with'
+
+"Very spacious room with a huge bathroom."
+
+Output:
+
+[
+"The room was very spacious.",
+"The bathroom was huge."
+]
+
+---
+
+"The room was lovely with a beautiful view and a large balcony."
+
+Output:
+
+[
+"The room was lovely.",
+"The view was beautiful.",
+"The balcony was large."
+]
+
+---
+
+"The room is comfortable, quiet, with a very large bed and a renovated bathroom."
+
+Output:
+
+[
+"The room is comfortable and quiet.",
+"The bed was very large.",
+"The bathroom was renovated."
+]
+
+---
 
 ## DO NOT SPLIT
 
-1) ONE target with multiple adjectives forming a single coherent opinion.
-   "The room was spacious, comfortable and clean."
-   -> ["The room was spacious, comfortable and clean."]
-   "The hotel is very clean and nice and safe and spacious and fresh and very quiet."
-   -> ["The hotel is very clean, nice, safe, spacious, fresh and very quiet."]
-   "The beach is dirty and small."   -> ["The beach is dirty and small."]
-   "The bathroom was modern and also very clean."  -> ["The bathroom was modern and also very clean."]
+### Rule 1 — Same aspect, same sentiment
 
-2) A single holistic opinion about "everything / the whole experience",
-   even if it lists examples.
-   "Loved the whole experience, from the gorgeous decor and attractions to the fountain to the food to the hotel room."
-   -> ["Loved the whole experience, from the gorgeous decor and attractions to the fountain to the food to the hotel room."]
-   "The room is absolutely perfect: spacious, bright, decorated with great taste and, most importantly, very clean."
-   -> ["The room is absolutely perfect: spacious, bright, decorated with great taste and, most importantly, very clean."]
+"The room was spacious, clean and comfortable."
 
-3) Logistics/context joined to a single opinion.
-   "We arrived at 3pm but the room was dirty."
-   -> ["We arrived at 3pm but the room was dirty."]
+Output:
 
-4) Purely factual statements (no opinion word or evaluative adjective).
-   "There are two elevators."  -> ["There are two elevators."]
+[
+"The room was spacious, clean and comfortable."
+]
 
-5) One usability complaint with causal/layout details.
-   Keep the reason with the complaint — nouns inside cause/location phrases are
-   context, not separate targets.
-   "We couldn't shower because the shower head was above the toilet and the sink, there was physically no space."
-   -> ["We couldn't shower because the shower head was above the toilet and the sink, and there was physically no space."]
+---
 
-6) View/location/context phrases and "as was" comparisons.
-   Nouns inside "view of/over X and Y", "as was X", "particularly X" are context.
-   Do not split them unless they carry their own independent opinion.
-   "Fantastic view over the river and promenade"
-   -> ["The view over the river and promenade was fantastic."]
-   "The rooftop pool was outstanding as was the view of the Dragon Bridge and river."
-   -> ["The rooftop pool was outstanding as was the view of the Dragon Bridge and river."]
-   "There was a rooftop pool with a great view, particularly watching the sun set over the water."
-   -> ["There was a rooftop pool with a great view, particularly watching the sun set over the water."]
-   "Beautiful room with a breathtaking view"
-   -> ["Beautiful room with a breathtaking view."]
+"The hotel is clean, nice, safe and quiet."
 
-7) Amenities, inventory, and "with [accessories]" of the main target.
-   Items after "with", "including", "such as", ":" that are ACCESSORIES or FEATURES
-   of the main entity stay with it. Do not assign the main adjective to each item.
-   "The bathroom was clean with the basics: shampoo, shower gel, hand soap."
-   -> ["The bathroom was clean with the basics: shampoo, shower gel, hand soap."]
-   "A large, clean swimming pool with sun loungers."
-   -> ["A large, clean swimming pool with sun loungers."]
-   "Outside there is a nice swimming pool with sun loungers and a breakfast area."
-   -> ["Outside there is a nice swimming pool with sun loungers and a breakfast area."]
+Output:
 
-   EXCEPTION — if one item in the list has its OWN explicit adjective while the
-   rest do not, extract only that opinionated item:
-   "Large bed, sofa, kitchenette, bathroom and most importantly a washing machine."
-   -> ["Large bed.", "The room had a sofa, kitchenette, bathroom and washing machine."]
+[
+"The hotel is clean, nice, safe and quiet."
+]
 
-8) Booking/logistics context plus one opinion.
-   Never create a positive opinion from a factual mention ("available" ≠ "good").
-   "We booked the sea view room and the view was breathtaking."
-   -> ["We booked the sea view room and the view was breathtaking."]  (keep as context)
-   "Although we had booked for 2 adults and 2 children, there was only 1 (though a huge) bed."
-   -> ["Although we had booked for 2 adults and 2 children, there was only 1 bed, though it was huge."]
+---
 
+"The bathroom was modern and very clean."
 
-## DECIDE — quick reference
+Output:
 
-| What "and" / comma / "with" connects      | Action                                     |
-|-------------------------------------------|--------------------------------------------|
-| Different targets, each with own opinion  | SPLIT into separate UOS (rule 1)           |
-| Two targets from different domains, shared adj | SPLIT and distribute adj (rule 3)     |
-| Two targets forming a natural paired set  | KEEP as one UOS (rule 3 exception)         |
-| Multiple adjectives on ONE noun           | KEEP as one UOS (DO NOT SPLIT rule 1)      |
-| "with" + separate physical space with adj | SPLIT (rule 6)                             |
-| "with" + accessory / feature / style      | KEEP with main target (rule 6, DO NOT SPLIT 7) |
-| Location/context nouns in "view of X, Y"  | KEEP (DO NOT SPLIT rule 6)                 |
-| Causal/layout nouns after "because/so"    | KEEP with complaint (DO NOT SPLIT rule 5)  |
+[
+"The bathroom was modern and very clean."
+]
 
-**Key question**: Does each item have its own standalone review-worthy identity
-AND an explicit adjective/opinion? If yes → SPLIT. If it describes HOW the main
-target looks/feels/comes-with → KEEP.
+---
 
+### Rule 2 — Holistic review statements
+
+"Loved the whole experience, from the decor to the food to the room."
+
+Output:
+
+[
+"Loved the whole experience, from the decor to the food to the room."
+]
+
+---
+
+### Rule 3 — Context plus one aspect statement
+
+"We arrived at 3pm but the room was dirty."
+
+Output:
+
+[
+"We arrived at 3pm but the room was dirty."
+]
+
+---
+
+### Rule 4 — Pure facts
+
+"There are two elevators."
+
+Output:
+
+[
+"There are two elevators."
+]
+
+---
+
+### Rule 5 — Causal explanation
+
+"We couldn't shower because the shower head was above the toilet and sink."
+
+Output:
+
+[
+"We couldn't shower because the shower head was above the toilet and sink."
+]
+
+---
+
+### Rule 6 — Amenities and accessories
+
+"The bathroom was clean with shampoo, shower gel and hand soap."
+
+Output:
+
+[
+"The bathroom was clean with shampoo, shower gel and hand soap."
+]
+
+---
+
+"A large swimming pool with sun loungers."
+
+Output:
+
+[
+"A large swimming pool with sun loungers."
+]
+
+---
+
+### Rule 7 — View and location context
+
+"Fantastic view over the river and promenade."
+
+Output:
+
+[
+"The view over the river and promenade was fantastic."
+]
+
+---
+
+"There was a rooftop pool with a great view."
+
+Output:
+
+[
+"There was a rooftop pool with a great view."
+]
+
+---
+
+## DECISION GUIDE
+
+Split if:
+
+✓ aspect term changes
+
+✓ sentiment changes for the same aspect
+
+Keep together if:
+
+✓ same aspect
+
+✓ same sentiment
+
+✓ multiple adjectives support the same overall sentiment
+
+✓ accessories or amenities belong to the same aspect
+
+✓ contextual information is attached to the same aspect
+
+---
 
 ## FINAL RULES
-- Preserve original wording and adjectives; never invent new ones.
-- Keep causal/contrast words ("because", "but", "although", "only", "no", "not")
-  when they change the meaning.
-- Keep modifiers attached to their target ("pool with views of the rock formations").
-- Do not classify aspect or sentiment.
-- Do not over-split a coherent multi-adjective opinion on one target.
+
+* Preserve original wording whenever possible.
+* Never invent aspects.
+* Never invent sentiment.
+* Keep modifiers attached to their aspects.
+* Do not classify aspect categories.
+* Do not classify sentiment labels.
+* Do not over-split coherent descriptions of the same aspect.
 
 Input:
 {sentence}
 
-Output:"""
+Output:
+"""
